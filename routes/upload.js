@@ -83,4 +83,58 @@ router.post('/upload', upload.single('file'), async (req, res) => {
   }
 });
 
+/**
+ * POST /api/presign
+ *
+ * Returns a presigned S3 PUT URL so the caller can upload large files
+ * directly to S3 without routing the payload through this server.
+ *
+ * Body (application/json):
+ *   bucket          — S3 bucket name (required)
+ *   region          — AWS region (required)
+ *   accessKeyId     — AWS access key (required)
+ *   secretAccessKey — AWS secret key (required)
+ *   filename        — desired object filename (required)
+ *   folder          — optional subfolder prefix
+ *   contentType     — MIME type (default: application/octet-stream)
+ *   expiresIn       — URL expiry in seconds (default: 300)
+ *
+ * Response:
+ *   { success: true, uploadUrl: "https://...", url: "https://...", key: "..." }
+ */
+router.post('/presign', async (req, res) => {
+  try {
+    const { bucket, region, accessKeyId, secretAccessKey, folder, filename, contentType, expiresIn } = req.body;
+
+    if (!bucket || !region || !accessKeyId || !secretAccessKey || !filename) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: bucket, region, accessKeyId, secretAccessKey, filename.'
+      });
+    }
+
+    const sanitizedName = filename.replace(/[^a-zA-Z0-9._\-]/g, '_');
+    const key = folder ? `${folder.replace(/\/$/, '')}/${sanitizedName}` : sanitizedName;
+    const mime = contentType || 'application/octet-stream';
+
+    const s3 = new S3Client({
+      region,
+      credentials: { accessKeyId, secretAccessKey }
+    });
+
+    const uploadUrl = await getSignedUrl(
+      s3,
+      new PutObjectCommand({ Bucket: bucket, Key: key, ContentType: mime }),
+      { expiresIn: parseInt(expiresIn, 10) || 300 }
+    );
+
+    const publicUrl = `https://${bucket}.s3.${region}.amazonaws.com/${key}`;
+
+    return res.status(200).json({ success: true, uploadUrl, url: publicUrl, key });
+  } catch (err) {
+    console.error('Presign error:', err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;
