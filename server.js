@@ -13,6 +13,12 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
-app.listen(PORT, () => {
-  console.log(`S3 Upload Microservice running on port ${PORT}`);
-});
+// Local development: start the HTTP server
+// On Vercel the file is imported as a serverless function — skip listen()
+if (process.env.VERCEL !== '1') {
+  app.listen(PORT, () => {
+    console.log(`S3 Upload Microservice running on port ${PORT}`);
+  });
+}
+
+module.exports = app;
